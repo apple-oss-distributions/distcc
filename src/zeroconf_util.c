@@ -285,7 +285,7 @@ static char *dcc_output_from_simple_execution(const char *path,
  * The TXT record is currently of the form:
  * <br><code>
  * txtvers=1;
- * protovers=371;
+ * protovers=372;
  * SystemVersion="</code>OS version<code>";
  * GCCVersion="</code>version of gcc 3.3<code>";
  * </code>
@@ -307,7 +307,7 @@ char *dcc_generate_txt_record(void)
     char  *comAppleEnd   = (char *) "\";";
     char  *comAppleGCC   = (char *) "GCCVersion=\"";
     char  *comAppleOS    = (char *) "SystemVersion=\"";
-    char  *protoVers     = (char *) "protovers=371;";
+    char  *protoVers     = (char *) "protovers=372;";
     char  *txtVers       = (char *) "txtvers=1;";
 
     // get the compiler part
