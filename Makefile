@@ -23,7 +23,7 @@ VERSION = 2.0.1-zeroconf
 PACKAGE_TARNAME = distcc
 SHELL = /bin/sh
 
-CFLAGS = -g -O2 -W -Wall -W -Wimplicit -Wshadow -Wpointer-arith -Wcast-align -Wwrite-strings -Waggregate-return -Wstrict-prototypes -Wmissing-prototypes -Wnested-externs -DDARWIN -D_REENTRANT -D__FreeBSD__
+CFLAGS = -g -O2 -W -Wall -W -Wimplicit -Wshadow -Wpointer-arith -Wcast-align -Wwrite-strings -Waggregate-return -Wstrict-prototypes -Wmissing-prototypes -Wnested-externs -DDARWIN -D_REENTRANT -D__FreeBSD__ $(RC_CFLAGS)
 LDFLAGS = -lcrypto
 CC = gcc
 CPP = gcc -E
@@ -44,7 +44,7 @@ sharedstatedir = ${prefix}/com
 localstatedir = ${prefix}/var
 libdir = ${exec_prefix}/lib
 infodir = ${prefix}/info
-mandir = ${prefix}/man
+mandir = ${prefix}/share/man
 includedir = ${prefix}/include
 oldincludedir = /usr/include
 docdir = ${datadir}/doc
@@ -474,7 +474,7 @@ showpaths:
 # tricky features so mkinstalldirs and cp will do
 
 #install: showpaths install-doc install-man install-programs try-install-linuxdoc
-install: showpaths install-programs
+install: showpaths install-programs install-man
 
 installhdrs:
 	@echo NO INSTALLHDRS
