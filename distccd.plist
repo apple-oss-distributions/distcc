@@ -22,6 +22,8 @@
 		<string>--min-disk-free</string>
 		<string>512</string>
 	</array>
+	<key>SHAuthorizationRight</key>
+	<string>com.apple.Xcode.distcc.admin</string>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>ServiceDescription</key>

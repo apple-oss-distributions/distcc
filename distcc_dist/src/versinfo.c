@@ -14,12 +14,12 @@
 #include "versinfo.h"
 
 typedef struct _CompilerInfo {
-    char *path;
+    char *abs_path;          /* Absolute path to the compiler's executable */
+    char *raw_path;          /* Path to compare to the client's compiler path */
     char *versionInfo;
     struct timespec modTime;
     struct _CompilerInfo *next;
 } CompilerInfo;
-
 
 /*
  Invokes the command line given by commandLine (using popen) and returns the
@@ -53,55 +53,203 @@ static char *dcc_run_simple_command(const char *commandLine)
     return versionInfo;
 }
 
-static CompilerInfo *dcc_parse_etc_compilers()
+/* Get the executable path. */
+static const char *dcc_get_executable_path()
 {
-    static CompilerInfo *compilers = NULL;
-    struct stat sb;
-    if (compilers == NULL && stat("/etc/compilers", &sb) == 0) {
-        int compilersFD = open("/etc/compilers", O_RDONLY, 0);
-        if (compilersFD != 1) {
-            char *compilersBuff = (char *)malloc(sb.st_size+1);
-            if (compilersBuff) {
-                if (read(compilersFD, compilersBuff, sb.st_size) == sb.st_size) {
-                    int i, lineCount;
-                    compilersBuff[sb.st_size] = 0; // null terminate
+    static char exe_path[PATH_MAX];
+    char buf[PATH_MAX];
+    uint32_t bufsize = sizeof(buf);
+    char *cp;
 
-                    // change all the newlines to terminators
-                    for (i=0; i<sb.st_size; i++) {
-                        if (compilersBuff[i] == '\n') {
-                            compilersBuff[i] = 0;
-                            lineCount++;
-                        }
-                    }
-                    
-                    // now we can just parse line by line
-                    int lineStart, lineLen, compilerCount = 0;
-                    for (lineStart = 0; lineStart < sb.st_size; lineStart+=lineLen+1) {
-                        struct stat cc_sb;
-                        lineLen = strlen(&compilersBuff[lineStart]);
-                        if (lineLen > 0 && compilersBuff[lineStart] != '#' && stat(&compilersBuff[lineStart], &cc_sb) == 0) {
-                            // we have not seen this compiler before so allocate a new node
-                            // note that we do not fill in the version info here
-                            CompilerInfo *ci = (CompilerInfo *)calloc(1, sizeof(CompilerInfo));
-                            ci->path = strdup(&compilersBuff[lineStart]);
-                            ci->next = compilers;
-                            compilers = ci;
-                        }
-                    }
-                }
-                free(compilersBuff);
+    if (*exe_path) return exe_path;
+        
+    if (_NSGetExecutablePath(buf, &bufsize) != 0) {
+        rs_log_error("Cannot get executable path for compilers");
+        return NULL;
+    }
+
+    cp = buf + strlen(buf);
+
+    while (cp > buf && *--cp != '/') {} /* skip over progname */
+
+    if (cp <= buf) {
+        rs_log_error("Overran the path name");
+        return NULL;
+    }
+
+    *cp = 0;
+
+    if (realpath(buf, exe_path) == NULL) {
+        rs_log_error("Cannot execute 'realpath()' for executable path");
+        memset(exe_path, '\0', PATH_MAX);
+        return NULL;
+    }
+
+    cp = exe_path + strlen(exe_path);
+
+    while (cp > exe_path && *--cp != '/') {} /* skip over dir (usually "bin") */
+
+    if (cp <= exe_path) {
+        rs_log_error("Cannot skip over directories in executable path");
+        memset(exe_path, '\0', PATH_MAX);
+        return NULL;
+    }
+
+    *cp = 0;
+    return exe_path;
+}
+
+static CompilerInfo *dcc_parse_distcc_compilers()
+{
+    /*
+     * The file 'share/distcc_compilers' lists allowable compilers as relative
+     * or absolute paths. The relative paths are relative to
+     * <developer_usr_dir>.
+     */
+    static CompilerInfo *compilers = NULL;
+    static const char *distcc_compilers_file = "share/distcc_compilers";
+    static char distcc_path[PATH_MAX];
+    struct stat sb;
+
+    if (compilers) return compilers;
+
+    const char *exe_path = dcc_get_executable_path();
+    if (!exe_path) return NULL;
+
+    if (!*distcc_path) {
+        strlcpy(distcc_path, exe_path, sizeof(distcc_path));
+        strlcat(distcc_path, "/", sizeof(distcc_path));
+        strlcat(distcc_path, distcc_compilers_file, sizeof(distcc_path));
+    }
+
+    if (stat(distcc_path, &sb) != 0) {
+        rs_log_error("distcc_compilers file not found on path '%s'!", exe_path);
+        return NULL;
+    }
+
+    int compilersFD = open(distcc_path, O_RDONLY, 0);
+
+    if (compilersFD == -1) {
+        rs_log_error("Cannot open distcc_compilers file!");
+        return NULL;
+    }
+
+    char *compilersBuff = (char *)malloc(sb.st_size + 1);
+
+    if (!compilersBuff) {
+        close(compilersFD);
+        return NULL;
+    }
+
+    if (read(compilersFD, compilersBuff, sb.st_size) != sb.st_size) {
+        free(compilersBuff);
+        close(compilersFD);
+        return NULL;
+    }
+
+    compilersBuff[sb.st_size] = '\0'; // null terminate
+
+    // change all the newlines to terminators
+    int i;
+
+    for (i=0; i<sb.st_size; i++)
+        if (compilersBuff[i] == '\n')
+            compilersBuff[i] = '\0';
+
+    // now we can just parse line by line
+    int lineStart, lineLen, compilerCount = 0;
+    for (lineStart = 0; lineStart < sb.st_size; lineStart += lineLen + 1) {
+        lineLen = strlen(&compilersBuff[lineStart]);
+        if (lineLen > 0 && compilersBuff[lineStart] != '#') {
+            /*
+             * We have not seen this compiler before so allocate a new node note
+             * that we do not fill in the version info here
+             */
+            CompilerInfo *ci = (CompilerInfo *)calloc(1, sizeof(CompilerInfo));
+            size_t buff_len = strlen(&compilersBuff[lineStart]) + 1;
+
+            /* The "raw path" is unaltered from the 'distcc_compilers' file. It
+             * is used during comparisons against the client's compiler path. */
+            ci->raw_path = (char *)calloc(1, buff_len);
+            strlcpy(ci->raw_path, &compilersBuff[lineStart], buff_len);
+
+            if (*ci->raw_path != '/') {
+                /* This is a relative path */
+                char c_path[PATH_MAX];
+                strlcpy(c_path, exe_path, sizeof(c_path));
+                strlcat(c_path, "/", sizeof(c_path));
+                strlcat(c_path, ci->raw_path, sizeof(c_path));
+                ci->abs_path = strdup(c_path);
+            } else {
+                /* This is an absolute path */
+                ci->abs_path = ci->raw_path;
             }
-            close(compilersFD);
+
+            struct stat cc_sb;
+            if (stat(ci->abs_path, &cc_sb) == 0) {
+                ci->next = compilers;
+                compilers = ci;
+            } else {
+                if (ci->raw_path != ci->abs_path) free(ci->raw_path);
+                free(ci->abs_path);
+                free(ci);
+            }
         }
     }
+
+    free(compilersBuff);
+    close(compilersFD);
     return compilers;
 }
 
-static CompilerInfo *dcc_compiler_info_for_path(char *compiler)
+/*
+ * For each compiler path in 'share/distcc_compilers':
+ *
+ *   - If it is a relative path, take the last two components of the compiler
+ *     path from the client's incoming compiler path and compare it. If there is
+ *     a match, use _NSGetExecutablePath() to get the path to that compiler,
+ *     remove the last two path components to obtain the <developer_usr_dir>
+ *     path prefix, apply it to the validated compiler subpath, and verify that
+ *     the resulting path exists.
+ *     
+ *   - If it is an absoluate path and it's equal to the compiler path, then
+ *     verify that that compiler exists and, if so, use it.
+ */
+static CompilerInfo *dcc_compiler_info_for_path(const char *compiler)
 {
-    CompilerInfo *compilers = dcc_parse_etc_compilers();
-    while (compilers && strcmp(compilers->path, compiler) != 0)
-        compilers = compilers->next;
+    CompilerInfo *compilers = dcc_parse_distcc_compilers();
+
+    if (!compilers) {
+        rs_log_error("Couldn't find or parse 'distcc_compilers' file");
+        return NULL;
+    }
+
+    /* Find the last two components of the client's compiler path */
+    const char *cp = compiler;
+    cp = strrchr(cp, '/');
+    if (!cp) {
+        rs_log_error("Invalid compiler path '%s'", compiler);
+        return NULL;
+    }
+
+    while (*(cp - 1) != '/' && cp > compiler) --cp;
+
+    /* Find the compiler in the list of acceptable compilers */
+    for (; compilers; compilers = compilers->next) {
+        const char *compiler_path = cp;
+
+        if (*compilers->raw_path == '/')
+            /* Absolute path. We want to compare against the full client's
+             * path */
+            compiler_path = compiler;
+
+        if (strcmp(compilers->raw_path, compiler_path) == 0)
+            break;
+    }
+
+    if (!compilers)
+        rs_log_error("Couldn't find matching compiler for '%s'", compiler);
+
     return compilers;
 }
 
@@ -110,11 +258,12 @@ static char *_dcc_get_compiler_version(CompilerInfo *compiler)
     char *result = NULL;
     struct stat sb;
     if (compiler) {
-        if (stat(compiler->path, &sb) == 0 && compiler->versionInfo != NULL) {
+        const char *c_path = compiler->abs_path;
+        if (stat(c_path, &sb) == 0 && compiler->versionInfo != NULL) {
             // we found the compiler, check that the timestamp is unchanged
             if (memcmp(&sb.st_ctimespec, &compiler->modTime, sizeof(struct timespec)) != 0) {
                 // didn't match, so throw away version number
-                rs_log_warning("compiler version changed: %s", compiler->path);
+                rs_log_warning("compiler version changed: %s", c_path);
                 //free(compiler->versionInfo); // leak; should be very uncommon
                 compiler->versionInfo = NULL;
             }
@@ -122,11 +271,11 @@ static char *_dcc_get_compiler_version(CompilerInfo *compiler)
         
         if (!compiler->versionInfo) {
             // have to fetch the version number
-            int lineLen = strlen(compiler->path);
+            int lineLen = strlen(c_path);
             char *versionArgs = " -v 2>&1";
             char commandBuff[lineLen+strlen(versionArgs)+1];
             char *versionOutput;
-            strcpy(commandBuff, compiler->path);
+            strcpy(commandBuff, c_path);
             strcat(commandBuff, versionArgs);
             versionOutput = dcc_run_simple_command(commandBuff);
             if (versionOutput) {
@@ -154,7 +303,8 @@ char *dcc_get_compiler_version(char *compilerPath)
 
 int dcc_is_allowed_compiler(char *path)
 {
-	return dcc_compiler_info_for_path(path) != NULL;
+    rs_trace("(dcc_is_allowed_compiler) allowed compiler path: %s", path);
+    return dcc_compiler_info_for_path(path) != NULL;
 }
 
 /*
@@ -164,7 +314,7 @@ int dcc_is_allowed_compiler(char *path)
  */
 char **dcc_get_all_compiler_versions(void)
 {
-    CompilerInfo *compilers = dcc_parse_etc_compilers();
+    CompilerInfo *compilers = dcc_parse_distcc_compilers();
     char **result = NULL;
     if (result == NULL) {
         struct stat sb;
@@ -197,12 +347,12 @@ char *dcc_get_system_version(void)
         char *sw_vers = dcc_run_simple_command("/usr/bin/sw_vers");
         if (sw_vers) {
             char *prodVers, *prodVersStr = "ProductVersion:";
-	    char *buildVers, *buildVersStr = "BuildVersion:";
+            char *buildVers, *buildVersStr = "BuildVersion:";
             char *nl;
             char archbuf[32];
             
             prodVers = strstr(sw_vers, prodVersStr);
-	    buildVers = strstr(sw_vers, buildVersStr);
+            buildVers = strstr(sw_vers, buildVersStr);
 
             if (prodVers) {
                 // find the start of the actual version string
@@ -216,22 +366,23 @@ char *dcc_get_system_version(void)
                 *nl = 0;
             } else {
                 prodVers = "Unknown";
-                rs_log_warning("failed to parse ProductVersion from sw_vers");
+                rs_log_warning("failed to parse ProcuctVersion from sw_vers");
             }
-
-	    if (buildVers) { 
-	      buildVers += strlen(buildVersStr);
-	      while (isspace(*buildVers))
-		buildVers++;
-	      nl = buildVers;
-	      while (*nl != 0 && *nl != '\n')
-		nl++;
-	      *nl = 0;
-	    }
-	    else {
-	      buildVers = "Unknown";
-	      rs_log_warning("failed to parse BuildVersion from sw_vers");
-	    }
+            
+            if (buildVers) {
+                // find the start of the actual version string
+                buildVers += strlen(buildVersStr);
+                while (isspace(*buildVers))
+                    buildVers++;
+                // change the newline to a null terminator
+                nl = buildVers;
+                while (*nl != 0 && *nl != '\n')
+                    nl++;
+                *nl = 0;
+            } else {
+                buildVers = "Unknown";
+                rs_log_warning("failed to parse BuildVersion from sw_vers");
+            }
             
             const NXArchInfo *myArch = NXGetLocalArchInfo();
             const char *archName;
