@@ -13,6 +13,11 @@
 #include "trace.h"
 #include "versinfo.h"
 
+// Path to xcode-select(1) to use to find the current developer directory path
+#define XCODE_SELECT_PATH "/usr/bin/xcode-select"
+// Environment variable controlling whether to use xcode-select(1) to find compilers
+#define XCODE_SELECT_ENV_SWITCH "USE_XCODE_SELECT_PATH"
+
 typedef struct _CompilerInfo {
     char *abs_path;          /* Absolute path to the compiler's executable */
     char *raw_path;          /* Path to compare to the client's compiler path */
@@ -99,6 +104,57 @@ static const char *dcc_get_executable_path()
     return exe_path;
 }
 
+/* Get the path to the usr directory in the xcode-select-indicated developer directory */
+static const char *dcc_get_xcodeselect_path()
+{
+    char *returnPath = NULL;
+    static char xcodeSelectUsrPath[PATH_MAX];
+
+    char *developerPath = dcc_run_simple_command(XCODE_SELECT_PATH" --print-path");
+    if (NULL == developerPath) {
+        rs_log_error(XCODE_SELECT_PATH" failed.");
+    }
+    else {
+        char unresolvedPath[PATH_MAX];
+        strlcpy(unresolvedPath, developerPath, sizeof(unresolvedPath));
+        
+        // Strip trailing newline
+        size_t len = strlen(unresolvedPath);
+        if (len > 0 && '\n' == unresolvedPath[len - 1]) {
+            unresolvedPath[len - 1] = '\0';
+        }
+        
+        strlcat(unresolvedPath, "/usr", sizeof(unresolvedPath));
+        char *ret = realpath(unresolvedPath, xcodeSelectUsrPath);
+        if (NULL == ret) {
+            rs_log_error("Cannot resolve xcode-select'ed developer usr directory %s.", xcodeSelectUsrPath);
+            *xcodeSelectUsrPath = 0;
+        }
+        else {
+            returnPath = xcodeSelectUsrPath;
+        }
+        
+        free(developerPath);
+    }
+    
+    return returnPath;
+}
+
+/* Get the path to the usr directory to use */
+static const char *dcc_get_usr_path()
+{
+    const char *usr_path;
+    
+    if (dcc_getenv_bool(XCODE_SELECT_ENV_SWITCH)) {
+        usr_path = dcc_get_xcodeselect_path();
+    }
+    else {
+        usr_path = dcc_get_executable_path();
+    }
+        
+    return usr_path;
+}
+
 static CompilerInfo *dcc_parse_distcc_compilers()
 {
     /*
@@ -146,6 +202,8 @@ static CompilerInfo *dcc_parse_distcc_compilers()
         close(compilersFD);
         return NULL;
     }
+    
+    const char *usr_path = dcc_get_usr_path();
 
     compilersBuff[sb.st_size] = '\0'; // null terminate
 
@@ -176,7 +234,7 @@ static CompilerInfo *dcc_parse_distcc_compilers()
             if (*ci->raw_path != '/') {
                 /* This is a relative path */
                 char c_path[PATH_MAX];
-                strlcpy(c_path, exe_path, sizeof(c_path));
+                strlcpy(c_path, usr_path, sizeof(c_path));
                 strlcat(c_path, "/", sizeof(c_path));
                 strlcat(c_path, ci->raw_path, sizeof(c_path));
                 ci->abs_path = strdup(c_path);
@@ -184,7 +242,7 @@ static CompilerInfo *dcc_parse_distcc_compilers()
                 /* This is an absolute path */
                 ci->abs_path = ci->raw_path;
             }
-
+            
             struct stat cc_sb;
             if (stat(ci->abs_path, &cc_sb) == 0) {
                 ci->next = compilers;
@@ -207,12 +265,10 @@ static CompilerInfo *dcc_parse_distcc_compilers()
  *
  *   - If it is a relative path, take the last two components of the compiler
  *     path from the client's incoming compiler path and compare it. If there is
- *     a match, use _NSGetExecutablePath() to get the path to that compiler,
- *     remove the last two path components to obtain the <developer_usr_dir>
- *     path prefix, apply it to the validated compiler subpath, and verify that
- *     the resulting path exists.
+ *     a match, append it to the path returned by dcc_get_usr_path() and verify
+ *     that the resulting path exists.
  *     
- *   - If it is an absoluate path and it's equal to the compiler path, then
+ *   - If it is an absolute path and it's equal to the compiler path, then
  *     verify that that compiler exists and, if so, use it.
  */
 static CompilerInfo *dcc_compiler_info_for_path(const char *compiler)
@@ -301,10 +357,25 @@ char *dcc_get_compiler_version(char *compilerPath)
     return _dcc_get_compiler_version(dcc_compiler_info_for_path(compilerPath));
 }
 
-int dcc_is_allowed_compiler(char *path)
+char *dcc_get_allowed_compiler_for_path(char *path)
 {
+    char *compilerPath = NULL;
+
     rs_trace("(dcc_is_allowed_compiler) allowed compiler path: %s", path);
-    return dcc_compiler_info_for_path(path) != NULL;
+    CompilerInfo *info = dcc_compiler_info_for_path(path);
+    
+    if (info && info->abs_path) {
+        size_t bufSize = strlen(info->abs_path) + 1;
+        compilerPath = malloc(bufSize);
+        if (compilerPath) {
+            size_t copylen = strlcpy(compilerPath, info->abs_path, bufSize);
+            if (0 == copylen) {
+                free(compilerPath);
+                compilerPath = NULL;
+            }
+        }
+    }
+    return compilerPath;
 }
 
 /*

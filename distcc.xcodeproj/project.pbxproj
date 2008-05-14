@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 42;
+	objectVersion = 44;
 	objects = {
 
 /* Begin PBXAggregateTarget section */
@@ -578,7 +578,7 @@
 		B3BA8F21087CA0CC009521B6 /* Project object */ = {
 			isa = PBXProject;
 			buildConfigurationList = B3BA8F22087CA0CC009521B6 /* Build configuration list for PBXProject "distcc" */;
-			compatibilityVersion = "Xcode 2.4";
+			compatibilityVersion = "Xcode 3.0";
 			hasScannedForEncodings = 0;
 			mainGroup = B3BA8F1F087CA0CC009521B6;
 			productRefGroup = B3BA8F3B087CA1DE009521B6 /* Products */;
@@ -605,7 +605,8 @@
 			buildSettings = {
 				COPY_PHASE_STRIP = YES;
 				GCC_GENERATE_DEBUGGING_SYMBOLS = NO;
-				OPTIMIZATION_CFLAGS = "-O0";
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS_NOT_USED_IN_PRECOMPS = "_FORTIFY_SOURCE=2";
 				OTHER_CFLAGS = "";
 				OTHER_LDFLAGS = "";
 				OTHER_REZFLAGS = "";
@@ -624,7 +625,8 @@
 			buildSettings = {
 				COPY_PHASE_STRIP = YES;
 				GCC_GENERATE_DEBUGGING_SYMBOLS = NO;
-				OPTIMIZATION_CFLAGS = "-O0";
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS_NOT_USED_IN_PRECOMPS = "_FORTIFY_SOURCE=2";
 				OTHER_CFLAGS = "";
 				OTHER_LDFLAGS = "";
 				OTHER_REZFLAGS = "";
@@ -646,8 +648,8 @@
 					i386,
 				);
 				COPY_PHASE_STRIP = YES;
-				CURRENT_PROJECT_VERSION = 881;
-				MACOSX_DEPLOYMENT_TARGET = 10.5;
+				CURRENT_PROJECT_VERSION = 1088;
+				GCC_PREPROCESSOR_DEFINITIONS_NOT_USED_IN_PRECOMPS = "_FORTIFY_SOURCE=2";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = BuildAndIntegration;
@@ -660,8 +662,7 @@
 					i386,
 				);
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 881;
-				MACOSX_DEPLOYMENT_TARGET = 10.5;
+				CURRENT_PROJECT_VERSION = 1088;
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Debug;
@@ -674,8 +675,7 @@
 					i386,
 				);
 				COPY_PHASE_STRIP = YES;
-				CURRENT_PROJECT_VERSION = 881;
-				MACOSX_DEPLOYMENT_TARGET = 10.5;
+				CURRENT_PROJECT_VERSION = 1088;
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Release;
@@ -685,7 +685,7 @@
 			buildSettings = {
 				COPY_PHASE_STRIP = NO;
 				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
-				OPTIMIZATION_CFLAGS = "-O0";
+				GCC_OPTIMIZATION_LEVEL = 0;
 				OTHER_CFLAGS = "";
 				OTHER_LDFLAGS = "";
 				OTHER_REZFLAGS = "";
@@ -704,7 +704,7 @@
 			buildSettings = {
 				COPY_PHASE_STRIP = YES;
 				GCC_GENERATE_DEBUGGING_SYMBOLS = NO;
-				OPTIMIZATION_CFLAGS = "-O0";
+				GCC_OPTIMIZATION_LEVEL = 0;
 				OTHER_CFLAGS = "";
 				OTHER_LDFLAGS = "";
 				OTHER_REZFLAGS = "";
@@ -729,7 +729,7 @@
 			buildSettings = {
 				COPY_PHASE_STRIP = YES;
 				GCC_GENERATE_DEBUGGING_SYMBOLS = NO;
-				OPTIMIZATION_CFLAGS = "-O0";
+				GCC_OPTIMIZATION_LEVEL = 0;
 				OTHER_CFLAGS = "";
 				OTHER_LDFLAGS = "";
 				OTHER_REZFLAGS = "";
