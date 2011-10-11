@@ -23,12 +23,8 @@
 		<string>--allow</string>
 		<string>0.0.0.0/0</string>
 	</array>
-	<key>SHAuthorizationRight</key>
-	<string>com.apple.Xcode.distcc.admin</string>
 	<key>RunAtLoad</key>
 	<true/>
-	<key>ServiceDescription</key>
-	<string>Distributed compilation daemon (distccd)</string>
 	<key>UserName</key>
 	<string>nobody</string>
 </dict>
